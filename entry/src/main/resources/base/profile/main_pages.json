@@ -1,9 +1,5 @@
 {
   "src": [
-    "pages/Index",
-    "pages/DashboardPage",
-    "pages/TrainingLogPage",
-    "pages/ExerciseProgressPage",
-    "pages/AICoachPage"
+    "pages/Index"
   ]
 }
