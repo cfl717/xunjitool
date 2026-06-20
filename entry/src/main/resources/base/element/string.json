@@ -1,0 +1,32 @@
+{
+  "string": [
+    {
+      "name": "app_name",
+      "value": "训记助手"
+    },
+    {
+      "name": "module_desc",
+      "value": "训记助手主模块"
+    },
+    {
+      "name": "entryability_desc",
+      "value": "训记助手入口"
+    },
+    {
+      "name": "tab_dashboard",
+      "value": "首页"
+    },
+    {
+      "name": "tab_log",
+      "value": "训练"
+    },
+    {
+      "name": "tab_progress",
+      "value": "进展"
+    },
+    {
+      "name": "tab_ai",
+      "value": "AI教练"
+    }
+  ]
+}

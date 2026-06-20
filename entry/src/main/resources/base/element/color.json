@@ -1,0 +1,48 @@
+{
+  "color": [
+    {
+      "name": "start_window_background",
+      "value": "#FF1A1A2E"
+    },
+    {
+      "name": "primary",
+      "value": "#FF6C63FF"
+    },
+    {
+      "name": "primary_dark",
+      "value": "#FF4A42D9"
+    },
+    {
+      "name": "background",
+      "value": "#FF1A1A2E"
+    },
+    {
+      "name": "surface",
+      "value": "#FF232340"
+    },
+    {
+      "name": "text_primary",
+      "value": "#FFFFFFFF"
+    },
+    {
+      "name": "text_secondary",
+      "value": "#FFB0B0C3"
+    },
+    {
+      "name": "accent_green",
+      "value": "#FF4CAF50"
+    },
+    {
+      "name": "accent_red",
+      "value": "#FFE53935"
+    },
+    {
+      "name": "accent_orange",
+      "value": "#FFFF9800"
+    },
+    {
+      "name": "card_background",
+      "value": "#FF2D2D4E"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "training-assistant",
+  "version": "1.0.0",
+  "description": "训记助手 - 训练数据展示、分析和AI集成",
+  "main": "index.ets",
+  "types": "",
+  "author": "",
+  "license": ""
+}

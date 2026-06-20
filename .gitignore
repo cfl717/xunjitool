@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+*.swp
+*.swo
+.idea/
+*.iml
+.vscode/
+
+# Build outputs
+build/
+*.hap
+*.app
+*.hsp
+
+# Dependencies
+oh_modules/
+node_modules/
+entry/node_modules/
+*.log
