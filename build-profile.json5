@@ -1,18 +1,42 @@
 {
-  "apiType": "stageMode",
-  "buildOption": {
-  },
-  "buildOptionSet": [
-    {
-      "name": "release",
-      "buildOption": {
+  "app": {
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "/Users/chefeilun/.ohos/config/default_xunjitool_jfpcyolLuFx0fk0aYyEkqqy9GxMVgY3C7vlDhug6qlw=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001B79F8084E77BCAA531554F191711E860BABE9FC4004413FF2B11E94F2816731DFC9C10A949865EE",
+          "profile": "/Users/chefeilun/.ohos/config/default_xunjitool_jfpcyolLuFx0fk0aYyEkqqy9GxMVgY3C7vlDhug6qlw=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "/Users/chefeilun/.ohos/config/default_xunjitool_jfpcyolLuFx0fk0aYyEkqqy9GxMVgY3C7vlDhug6qlw=.p12",
+          "storePassword": "0000001B169F06ADE3D51799A8019B9C7F67B6C17479E6969A4032E60CB007BA4592B0E13D90E7BDE81EEB"
+        }
       }
-    }
-  ],
+    ],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "bundleName": "com.cfl.xunjitool",
+        "bundleType": "app",
+        "compatibleSdkVersion": "26.0.0",
+        "runtimeOS": "HarmonyOS",
+        "targetSdkVersion": "26.0.0"
+      }
+    ]
+  },
   "modules": [
     {
       "name": "entry",
-      "srcPath": "./entry"
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": ["default"]
+        }
+      ]
     }
   ]
 }
