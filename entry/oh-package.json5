@@ -2,8 +2,5 @@
   "name": "entry",
   "version": "1.0.0",
   "description": "训记助手主模块",
-  "main": "",
-  "types": "",
-  "author": "",
-  "license": ""
+  "modelVersion": "6.1.1"
 }

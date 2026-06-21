@@ -1,0 +1,12 @@
+{
+  "name": "xunjitool",
+  "version": "1.0.0",
+  "description": "训记助手 HarmonyOS 应用",
+  "scripts": {
+    "build": "hvigorw --mode release assembleHap"
+  },
+  "devDependencies": {
+    "@ohos/hvigor": "^6.24.2",
+    "@ohos/hvigor-ohos-plugin": "^6.24.2"
+  }
+}
