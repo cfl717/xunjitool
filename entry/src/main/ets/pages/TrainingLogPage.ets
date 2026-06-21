@@ -1,9 +1,4 @@
-/**
- * 训练日志页
- * 日历热力图 + 选中日期的训练详情列表
- */
-
-import { viewModel, LoadState } from '../viewmodel/TrainingViewModel';
+import { viewModel } from '../viewmodel/TrainingViewModel';
 import { TrainingRecord } from '../models/TrainingRecord';
 import { CalendarHeatmap } from '../components/CalendarHeatmap';
 import { TrainingSessionCard } from '../components/TrainingSessionCard';
@@ -11,172 +6,138 @@ import { groupRecordsByDate } from '../services/StatisticsEngine';
 
 @Component
 export struct TrainingLogPage {
-  @State loadState: LoadState = viewModel.loadState;
+  @State year: number = new Date().getFullYear();
+  @State month: number = new Date().getMonth() + 1;
   @State selectedDate: string = '';
-  @State todayRecords: TrainingRecord[] = [];
-  @State currentMonth: number = new Date().getMonth() + 1;
-  @State currentYear: number = new Date().getFullYear();
-
-  // 日期 → 训练次数 映射
-  @State dateTrainingCount: Record<string, number> = {};
 
   aboutToAppear(): void {
-    this.loadState = viewModel.loadState;
-    this.rebuildDateMap();
-    this.selectToday();
-  }
-
-  rebuildDateMap(): void {
-    const map: Record<string, number> = {};
-    for (const r of viewModel.allRecords) {
-      map[r.date] = (map[r.date] || 0) + 1;
+    if (this.selectedDate !== '') {
+      return;
     }
-    this.dateTrainingCount = map;
-  }
-
-  selectToday(): void {
-    const now = new Date();
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    this.selectDate(today);
-  }
-
-  selectDate(dateStr: string): void {
-    this.selectedDate = dateStr;
-    this.todayRecords = viewModel.allRecords.filter(r => r.date === dateStr);
+    if (viewModel.allRecords.length > 0) {
+      const sorted = viewModel.allRecords.slice().sort((a: TrainingRecord, b: TrainingRecord) => b.date.localeCompare(a.date));
+      this.selectedDate = sorted[0].date;
+      const parts = this.selectedDate.split('-');
+      this.year = parseInt(parts[0]);
+      this.month = parseInt(parts[1]);
+    } else {
+      const today = new Date();
+      this.year = today.getFullYear();
+      this.month = today.getMonth() + 1;
+      this.selectedDate = this.formatDateStr(this.year, this.month, today.getDate());
+    }
   }
 
   build() {
     Column() {
-      // 页面标题
-      Text('训练日志')
-        .fontSize(22)
-        .fontColor(Color.White)
-        .fontWeight(FontWeight.Bold)
-        .width('100%')
-        .padding({ top: 16, bottom: 8, left: 20 })
+      Text('训练日志').fontSize(22).fontColor(Color.White).fontWeight(FontWeight.Bold)
+        .width('100%').padding({ top: 16, bottom: 8, left: 20 })
 
-      if (this.loadState === LoadState.LOADING) {
-        this.buildLoading()
-      } else if (this.loadState === LoadState.EMPTY) {
-        this.buildEmpty()
+      if (viewModel.allRecords.length === 0) {
+        Column() {
+          Text('暂无训练日志').fontSize(16).fontColor($r('app.color.text_secondary'))
+          Text('同步或记录训练后即可按日历查看').fontSize(12).fontColor('rgba(255,255,255,0.35)').margin({ top: 8 })
+        }.layoutWeight(1).justifyContent(FlexAlign.Center).width('100%')
       } else {
         Scroll() {
           Column() {
-            // 日历热力图
+            Row() {
+              Text('‹').fontSize(28).fontColor(Color.White)
+                .width(44).height(44).textAlign(TextAlign.Center)
+                .backgroundColor($r('app.color.card_background')).borderRadius(22)
+                .onClick(() => { this.prevMonth(); })
+              Column() {
+                Text(this.year + '年' + this.month + '月').fontSize(17).fontColor(Color.White).fontWeight(FontWeight.Bold)
+                Text('本月训练 ' + this.getMonthTrainingDays() + ' 天')
+                  .fontSize(12).fontColor($r('app.color.text_secondary')).margin({ top: 4 })
+              }.layoutWeight(1).alignItems(HorizontalAlign.Center)
+              Text('›').fontSize(28).fontColor(Color.White)
+                .width(44).height(44).textAlign(TextAlign.Center)
+                .backgroundColor($r('app.color.card_background')).borderRadius(22)
+                .onClick(() => { this.nextMonth(); })
+            }.width('100%').margin({ bottom: 12 }).alignItems(VerticalAlign.Center)
+
             CalendarHeatmap({
-              year: this.currentYear,
-              month: this.currentMonth,
-              trainingData: this.dateTrainingCount
+              year: this.year,
+              month: this.month,
+              trainingData: this.buildTrainingData(),
+              selectedDate: this.selectedDate,
+              onDaySelect: (date: string) => { this.selectedDate = date; }
             })
 
-            // 月份切换
-            Row() {
-              Text('◀')
-                .fontSize(16)
-                .fontColor($r('app.color.primary'))
-                .onClick(() => this.changeMonth(-1))
-
-              Text(`${this.currentYear}年${this.currentMonth}月`)
-                .fontSize(14)
-                .fontColor(Color.White)
-                .fontWeight(FontWeight.Medium)
-                .layoutWeight(1)
-                .textAlign(TextAlign.Center)
-
-              Text('▶')
-                .fontSize(16)
-                .fontColor($r('app.color.primary'))
-                .onClick(() => this.changeMonth(1))
-            }
-            .width('100%')
-            .padding({ vertical: 12 })
-            .alignItems(VerticalAlign.Center)
-
-            // 选中日期
-            if (this.selectedDate) {
-              Row() {
-                Text(this.formatDateDisplay(this.selectedDate))
-                  .fontSize(15)
-                  .fontColor(Color.White)
-                  .fontWeight(FontWeight.Medium)
-
-                Text(`${this.todayRecords.length} 条记录`)
-                  .fontSize(12)
-                  .fontColor($r('app.color.text_secondary'))
-                  .margin({ left: 8 })
+            Column() {
+              Text(this.formatSelectedLabel()).fontSize(15).fontColor(Color.White).fontWeight(FontWeight.Medium)
+                .width('100%').margin({ bottom: 8 })
+              if (this.getSelectedRecords().length === 0) {
+                Text('该日无训练记录').fontSize(14).fontColor($r('app.color.text_secondary'))
+                  .width('100%').textAlign(TextAlign.Center).padding({ top: 16, bottom: 16 })
+              } else {
+                ForEach(this.getSelectedRecords(), (r: TrainingRecord) => {
+                  TrainingSessionCard({ record: r })
+                }, (r: TrainingRecord) => r.id)
               }
-              .width('100%')
-              .margin({ bottom: 8 })
-            }
+            }.width('100%').margin({ top: 16 })
+          }.padding(16).width('100%')
+        }.layoutWeight(1)
+      }
+    }.width('100%').height('100%').backgroundColor($r('app.color.background'))
+  }
 
-            // 当天的训练记录列表
-            if (this.todayRecords.length > 0) {
-              ForEach(this.todayRecords, (record: TrainingRecord) => {
-                TrainingSessionCard({ record: record, expanded: false })
-              }, (record: TrainingRecord) => record.id)
-            } else if (this.selectedDate) {
-              Text('该日无训练记录')
-                .fontSize(13)
-                .fontColor($r('app.color.text_secondary'))
-                .width('100%')
-                .textAlign(TextAlign.Center)
-                .padding(20)
-            }
-          }
-          .padding(16)
-          .width('100%')
-        }
-        .scrollable(ScrollDirection.Vertical)
-        .scrollBar(BarState.Off)
+  buildTrainingData(): Record<string, number> {
+    const data: Record<string, number> = {};
+    for (const r of viewModel.allRecords) {
+      data[r.date] = (data[r.date] || 0) + 1;
+    }
+    return data;
+  }
+
+  getSelectedRecords(): TrainingRecord[] {
+    if (!this.selectedDate) {
+      return [];
+    }
+    const grouped = groupRecordsByDate(viewModel.allRecords);
+    const records = grouped.get(this.selectedDate);
+    return records ? records : [];
+  }
+
+  getMonthTrainingDays(): number {
+    const prefix = this.year + '-' + String(this.month).padStart(2, '0');
+    const dates = new Set<string>();
+    for (const r of viewModel.allRecords) {
+      if (r.date.startsWith(prefix)) {
+        dates.add(r.date);
       }
     }
-    .width('100%')
-    .height('100%')
-    .backgroundColor($r('app.color.background'))
+    return dates.size;
   }
 
-  changeMonth(delta: number): void {
-    this.currentMonth += delta;
-    if (this.currentMonth > 12) {
-      this.currentMonth = 1;
-      this.currentYear++;
-    } else if (this.currentMonth < 1) {
-      this.currentMonth = 12;
-      this.currentYear--;
+  formatSelectedLabel(): string {
+    if (!this.selectedDate) {
+      return '选择日期查看训练';
+    }
+    const count = this.getSelectedRecords().length;
+    return this.selectedDate + ' · ' + count + ' 次训练';
+  }
+
+  formatDateStr(y: number, m: number, d: number): string {
+    return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  }
+
+  prevMonth(): void {
+    if (this.month === 1) {
+      this.month = 12;
+      this.year--;
+    } else {
+      this.month--;
     }
   }
 
-  formatDateDisplay(dateStr: string): string {
-    const parts = dateStr.split('-');
-    return `${parts[0]}年${parts[1]}月${parts[2]}日`;
-  }
-
-  @Builder
-  buildLoading() {
-    Column() {
-      LoadingProgress()
-        .color($r('app.color.primary'))
-        .width(40).height(40)
-      Text('加载中...')
-        .fontSize(14)
-        .fontColor($r('app.color.text_secondary'))
-        .margin({ top: 12 })
+  nextMonth(): void {
+    if (this.month === 12) {
+      this.month = 1;
+      this.year++;
+    } else {
+      this.month++;
     }
-    .width('100%').height('100%')
-    .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
-  }
-
-  @Builder
-  buildEmpty() {
-    Column() {
-      Text('📋')
-        .fontSize(48)
-      Text('暂无训练日志')
-        .fontSize(16)
-        .fontColor($r('app.color.text_secondary'))
-        .margin({ top: 12 })
-    }
-    .width('100%').height('100%')
-    .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
   }
 }

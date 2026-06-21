@@ -105,3 +105,57 @@ export const PROMPT_TEMPLATES: PromptTemplate[] = [
     systemPrompt: '请根据我的训练负荷和频率，评估我的恢复状态，给出休息、营养和恢复训练的建议。'
   }
 ];
+
+/** 预设训练计划 */
+export interface TrainingPlan {
+  id: string;
+  name: string;
+  description: string;
+  daysPerWeek: number;
+  difficulty: '入门' | '中级' | '高级';
+  prompt: string;
+}
+
+/** 预设训练计划库 */
+export const TRAINING_PLANS: TrainingPlan[] = [
+  {
+    id: 'ppl',
+    name: '推/拉/腿 (PPL)',
+    description: '经典的 Push/Pull/Legs 三分化，每周6天',
+    daysPerWeek: 6,
+    difficulty: '中级',
+    prompt: '请根据我的训练数据生成一份推拉腿(PPL)三分化训练计划，每周6天，包含具体的动作、组数、次数范围和建议重量。'
+  },
+  {
+    id: 'upper_lower',
+    name: '上下肢分化',
+    description: '上肢/下肢 四分化，每周4天',
+    daysPerWeek: 4,
+    difficulty: '中级',
+    prompt: '请根据我的训练数据生成一份上下肢分化训练计划，每周4天，包含具体的动作、组数、次数范围和建议重量。'
+  },
+  {
+    id: 'stronglifts',
+    name: 'StrongLifts 5x5',
+    description: '经典的力量举入门，每周3天，专注三大项',
+    daysPerWeek: 3,
+    difficulty: '入门',
+    prompt: '请根据我的训练数据生成一份StrongLifts 5x5计划，每周3天，包含深蹲、卧推、硬拉的具体安排。'
+  },
+  {
+    id: 'phul',
+    name: 'PHUL 力量/增肌',
+    description: '兼顾力量与肌肉量，每周4天',
+    daysPerWeek: 4,
+    difficulty: '中级',
+    prompt: '请根据我的训练数据生成一份PHUL计划(Power Hypertrophy Upper Lower)，每周4天。'
+  },
+  {
+    id: 'fullbody',
+    name: '全身训练',
+    description: '每周3天，适合新手或时间有限',
+    daysPerWeek: 3,
+    difficulty: '入门',
+    prompt: '请根据我的训练数据生成一份全身训练计划，每周3次，包含主要复合动作。'
+  }
+];

@@ -1,8 +1,9 @@
 import { viewModel, LoadState } from '../viewmodel/TrainingViewModel';
-import { ChatMessage, ChatRole, PROMPT_TEMPLATES, PromptTemplate } from '../models/AiConversation';
+import { ChatMessage, ChatRole, PROMPT_TEMPLATES, PromptTemplate, TRAINING_PLANS, TrainingPlan } from '../models/AiConversation';
 import { ChatBubble } from '../components/ChatBubble';
 import { PromptChip } from '../components/PromptChip';
-import { callDeepSeek, buildSystemPrompt, ApiMessage } from '../services/DeepSeekService';
+import { callDeepSeek, callDeepSeekStream, buildSystemPrompt, ApiMessage } from '../services/DeepSeekService';
+import { Storage } from '../services/PreferencesStorage';
 
 @Component
 export struct AICoachPage {
@@ -10,11 +11,40 @@ export struct AICoachPage {
   @State inputText: string = '';
   @State isWaiting: boolean = false;
   @State showApiKeyDialog: boolean = false;
+  @State showPlanLibrary: boolean = false;
   @State apiKeyInput: string = '';
   private scroller: Scroller = new Scroller();
+  private isLoaded: boolean = false;
 
   aboutToAppear(): void {
     this.apiKeyInput = viewModel.deepSeekConfig.apiKey;
+    this.loadMessages();
+  }
+
+  async loadMessages(): Promise<void> {
+    if (this.isLoaded) return;
+    this.isLoaded = true;
+    try {
+      const saved = await Storage.getChatMessages();
+      if (saved.length > 0) {
+        this.messages = saved as ChatMessage[];
+      }
+    } catch (e) {
+      console.error('Failed to load chat history: ' + JSON.stringify(e));
+    }
+  }
+
+  async saveMessages(): Promise<void> {
+    try {
+      await Storage.saveChatMessages(this.messages);
+    } catch (e) {
+      console.error('Failed to save chat history: ' + JSON.stringify(e));
+    }
+  }
+
+  clearHistory(): void {
+    this.messages = [];
+    Storage.saveChatMessages([]);
   }
 
   build() {
@@ -22,6 +52,10 @@ export struct AICoachPage {
       Row() {
         Text('AI 教练').fontSize(22).fontColor(Color.White).fontWeight(FontWeight.Bold)
         Blank()
+        if (this.messages.length > 0) {
+          Text('🗑️').fontSize(18).margin({ right: 12 }).onClick(() => { this.clearHistory(); })
+        }
+        Text('📋').fontSize(18).margin({ right: 12 }).onClick(() => { this.showPlanLibrary = true; })
         Text('⚙️').fontSize(20).onClick(() => { this.showApiKeyDialog = true; })
       }.width('100%').padding({ top: 16, bottom: 8, left: 20, right: 20 })
 
@@ -37,6 +71,7 @@ export struct AICoachPage {
       this.buildInputArea()
 
       if (this.showApiKeyDialog) { this.buildApiKeyDialog(); }
+      if (this.showPlanLibrary) { this.buildPlanLibrary(); }
     }.width('100%').height('100%').backgroundColor($r('app.color.background'))
   }
 
@@ -93,6 +128,60 @@ export struct AICoachPage {
      .backgroundColor('rgba(0,0,0,0.6)').onClick(() => { this.showApiKeyDialog = false; })
   }
 
+  @Builder
+  buildPlanLibrary() {
+    Column() {
+      Column() {
+        Text('训练计划库').fontSize(18).fontColor(Color.White).fontWeight(FontWeight.Bold).width('100%').margin({ bottom: 16 })
+        Text('选择一个计划模板，AI 会根据你的训练数据生成个性化方案').fontSize(12).fontColor($r('app.color.text_secondary')).width('100%').margin({ bottom: 16 })
+
+        Scroll() {
+          Column() {
+            ForEach(TRAINING_PLANS, (plan: TrainingPlan) => {
+              Column() {
+                Row() {
+                  Column() {
+                    Text(plan.name).fontSize(15).fontColor(Color.White).fontWeight(FontWeight.Medium)
+                    Text(plan.description).fontSize(11).fontColor($r('app.color.text_secondary')).margin({ top: 2 })
+                    Row() {
+                      Text(plan.difficulty).fontSize(10).fontColor($r('app.color.primary'))
+                        .padding({ left: 6, right: 6, top: 2, bottom: 2 }).backgroundColor('rgba(108,99,255,0.2)').borderRadius(4)
+                      Text(plan.daysPerWeek + '天/周').fontSize(10).fontColor($r('app.color.accent_green')).margin({ left: 6 })
+                        .padding({ left: 6, right: 6, top: 2, bottom: 2 }).backgroundColor('rgba(76,175,80,0.15)').borderRadius(4)
+                    }.margin({ top: 6 })
+                  }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                  Text('使用').fontSize(12).fontColor(Color.White).backgroundColor($r('app.color.primary'))
+                    .padding({ left: 14, right: 14, top: 6, bottom: 6 }).borderRadius(16)
+                    .onClick(() => {
+                      this.showPlanLibrary = false;
+                      this.useTrainingPlan(plan);
+                    })
+                }.width('100%')
+              }.width('100%').padding(14).backgroundColor($r('app.color.card_background')).borderRadius(12).margin({ bottom: 8 })
+            }, (plan: TrainingPlan) => plan.id)
+          }.width('100%')
+        }.layoutWeight(1)
+
+        Button('关闭').fontSize(14).fontColor($r('app.color.text_secondary')).backgroundColor('rgba(255,255,255,0.08)')
+          .width('100%').height(40).borderRadius(20).margin({ top: 12 })
+          .onClick(() => { this.showPlanLibrary = false; })
+      }.padding(24).backgroundColor($r('app.color.surface')).borderRadius(16).width('90%')
+    }.width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+      .backgroundColor('rgba(0,0,0,0.6)').onClick(() => { this.showPlanLibrary = false; })
+  }
+
+  useTrainingPlan(plan: TrainingPlan): void {
+    if (plan.prompt) {
+      const ctx = this.buildContext();
+      const sysPrompt = buildSystemPrompt(ctx);
+      const userMsg: ChatMessage = { id: 'msg_' + Date.now(), role: ChatRole.USER, content: plan.prompt, timestamp: Date.now(), isStreaming: false };
+      this.messages.push(userMsg);
+      this.saveMessages();
+      this.isWaiting = true;
+      this.doChat(sysPrompt, plan.prompt).finally(() => { this.isWaiting = false; });
+    }
+  }
+
   async saveApiKey(): Promise<void> {
     if (this.apiKeyInput.trim()) await viewModel.updateApiKey(this.apiKeyInput.trim());
     this.showApiKeyDialog = false;
@@ -103,6 +192,7 @@ export struct AICoachPage {
     const sysPrompt = buildSystemPrompt(ctx);
     const userMsg: ChatMessage = { id: 'msg_' + Date.now(), role: ChatRole.USER, content: '请执行：' + tpl.systemPrompt, timestamp: Date.now(), isStreaming: false };
     this.messages.push(userMsg);
+    this.saveMessages();
     this.isWaiting = true;
     try {
       await this.doChat(sysPrompt, userMsg.content);
@@ -118,6 +208,7 @@ export struct AICoachPage {
     this.inputText = '';
     const userMsg: ChatMessage = { id: 'msg_' + Date.now(), role: ChatRole.USER, content: text, timestamp: Date.now(), isStreaming: false };
     this.messages.push(userMsg);
+    this.saveMessages();
     this.isWaiting = true;
     try {
       const ctx = this.buildContext();
@@ -135,6 +226,7 @@ export struct AICoachPage {
     const aid = 'msg_' + Date.now() + '_ai';
     const asst: ChatMessage = { id: aid, role: ChatRole.ASSISTANT, content: '', timestamp: Date.now(), isStreaming: true };
     this.messages.push(asst);
+    this.saveMessages();
 
     const apiMessages: ApiMessage[] = [{ role: 'system', content: sysPrompt }];
     for (const m of this.messages) {
@@ -145,8 +237,13 @@ export struct AICoachPage {
     }
 
     try {
-      const result = await callDeepSeek(viewModel.deepSeekConfig, apiMessages);
-      this.updateMsg(aid, result, false);
+      // 流式输出：每次收到内容块就更新界面
+      let accumulated = '';
+      await callDeepSeekStream(viewModel.deepSeekConfig, apiMessages, (chunk: string) => {
+        accumulated += chunk;
+        this.updateMsg(aid, accumulated, true);
+      });
+      this.updateMsg(aid, accumulated, false);
     } catch (err) {
       this.addErr(err.message || '请求失败');
     }
@@ -158,6 +255,7 @@ export struct AICoachPage {
       this.messages[idx].content = content;
       this.messages[idx].isStreaming = streaming;
       this.messages = [...this.messages];
+      this.saveMessages();
     }
   }
 
@@ -170,6 +268,7 @@ export struct AICoachPage {
 
   addErr(text: string): void {
     this.messages.push({ id: 'err_' + Date.now(), role: ChatRole.ASSISTANT, content: '⚠️ ' + text, timestamp: Date.now(), isStreaming: false });
+    this.saveMessages();
   }
 
   buildContext(): string {

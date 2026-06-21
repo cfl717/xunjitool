@@ -1,4 +1,5 @@
 import http from '@ohos.net.http';
+import util from '@ohos.util';
 import { DeepSeekConfig } from '../models/AiConversation';
 import { DEEPSEEK_API } from '../utils/Constants';
 
@@ -24,7 +25,12 @@ export async function callDeepSeek(config: DeepSeekConfig, messages: ApiMessage[
       connectTimeout: DEEPSEEK_API.TIMEOUT_MS, readTimeout: DEEPSEEK_API.TIMEOUT_MS
     });
     if (response.responseCode !== 200) { throw new Error('API请求失败: ' + response.responseCode); }
-    const data = response.result as Record<string, Object>;
+    let data: Record<string, Object>;
+    if (typeof response.result === 'string') {
+      data = JSON.parse(response.result) as Record<string, Object>;
+    } else {
+      data = response.result as Record<string, Object>;
+    }
     // Check for API error response (no 'choices' field)
     const respErr = data['error'] as Record<string, Object> | undefined;
     if (respErr) {
@@ -39,6 +45,80 @@ export async function callDeepSeek(config: DeepSeekConfig, messages: ApiMessage[
       throw new Error('API返回消息格式异常');
     }
     return (msg['content'] as string) || '';
+  } finally {
+    httpRequest.destroy();
+  }
+}
+
+/**
+ * 流式调用 DeepSeek API（SSE），每次收到内容时回调 onChunk
+ * 返回完整内容
+ */
+export async function callDeepSeekStream(
+  config: DeepSeekConfig,
+  messages: ApiMessage[],
+  onChunk: (text: string) => void
+): Promise<string> {
+  if (!config.apiKey) { throw new Error('请先设置 DeepSeek API Key'); }
+  const httpRequest = http.createHttp();
+  let fullContent = '';
+  let responseCode = -1;
+
+  try {
+    httpRequest.on('headersReceive', (header: Object) => {
+      const h = header as Record<string, Object>;
+      if (typeof h['responseCode'] === 'number') { responseCode = h['responseCode']; }
+    });
+
+    const promise = httpRequest.request(
+      DEEPSEEK_API.BASE_URL + DEEPSEEK_API.CHAT_ENDPOINT,
+      {
+        method: http.RequestMethod.POST,
+        header: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + config.apiKey,
+          'Accept': 'text/event-stream'
+        },
+        extraData: JSON.stringify({
+          model: config.model || DEEPSEEK_API.MODEL, messages: messages,
+          temperature: config.temperature ?? 0.7, max_tokens: config.maxTokens ?? 4096,
+          stream: true
+        }),
+        connectTimeout: DEEPSEEK_API.TIMEOUT_MS,
+        readTimeout: DEEPSEEK_API.TIMEOUT_MS * 3
+      }
+    );
+
+    let buffer = '';
+    httpRequest.on('dataReceive', (data: ArrayBuffer) => {
+      const uint8 = new Uint8Array(data);
+      const chunk = new util.TextDecoder('utf-8').decodeToString(uint8);
+      buffer += chunk;
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        const t = line.trim();
+        if (t.startsWith('data: ')) {
+          const json = t.substring(6);
+          if (json === '[DONE]') continue;
+          try {
+            const p = JSON.parse(json) as Record<string, Object>;
+            const choices = p['choices'] as Record<string, Object>[] | undefined;
+            if (choices && choices.length > 0) {
+              const delta = choices[0]['delta'] as Record<string, Object> | undefined;
+              const c = delta ? delta['content'] as string | undefined : undefined;
+              if (c) { fullContent += c; onChunk(c); }
+            }
+          } catch (e) {}
+        }
+      }
+    });
+
+    await promise;
+    if (responseCode !== -1 && responseCode !== 200) {
+      throw new Error('API请求失败: ' + responseCode);
+    }
+    return fullContent;
   } finally {
     httpRequest.destroy();
   }

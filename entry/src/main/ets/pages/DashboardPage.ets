@@ -1,108 +1,219 @@
-import { viewModel, LoadState } from '../viewmodel/TrainingViewModel';
-import { StatCard } from '../components/StatCard';
-import { OneRmBar } from '../components/OneRmBar';
-import { formatDuration } from '../utils/DateUtils';
+import { viewModel } from '../viewmodel/TrainingViewModel';
 import { ExercisePR } from '../models/DashboardStats';
+import { ProgressChart } from '../components/ProgressChart';
+import { OneRmBar } from '../components/OneRmBar';
+import { Storage } from '../services/PreferencesStorage';
+
+interface ChartPoint { date: string; value: number; }
 
 @Component
 export struct DashboardPage {
-  @State loadState: LoadState = viewModel.loadState;
+  @State showSettingsDialog: boolean = false;
+  @State xunjiTokenInput: string = '';
+  @State isSyncing: boolean = false;
+  @State syncHint: string = '';
+  @State statsSessions: number = 0;
+  @State statsDays: number = 0;
 
-  aboutToAppear(): void { this.loadState = viewModel.loadState; }
+  aboutToAppear(): void {
+    this.refreshStats();
+  }
 
-  getMaxRm(): number {
-    const prs = viewModel.dashboardStats.bigThreePRs;
-    if (prs.length === 0) return 1;
-    let max = 1;
-    for (const p of prs) { if (p.estimatedOneRm > max) max = p.estimatedOneRm; }
-    return max;
+  refreshStats(): void {
+    const stats = viewModel.dashboardStats;
+    this.statsSessions = stats.totalSessions;
+    this.statsDays = stats.totalTrainingDays;
   }
 
   build() {
     Column() {
-      Text('训练仪表盘').fontSize(22).fontColor(Color.White).fontWeight(FontWeight.Bold).width('100%').padding({ top: 16, bottom: 8, left: 20 })
-      if (this.loadState === LoadState.LOADING) { this.buildLoading() }
-      else if (this.loadState === LoadState.EMPTY) { this.buildEmpty() }
-      else if (this.loadState === LoadState.ERROR) { this.buildError() }
-      else { this.buildDashboard() }
+      Row() {
+        Text('训练仪表盘').fontSize(22).fontColor(Color.White).fontWeight(FontWeight.Bold).layoutWeight(1)
+        Text('⚙️').fontSize(20).onClick(() => { this.openSettings(); })
+      }.width('100%').padding({ top: 16, bottom: 8, left: 20, right: 20 })
+
+      if (viewModel.allRecords.length === 0) {
+        Column() {
+          Text('暂无训练数据').fontSize(16).fontColor($r('app.color.text_secondary'))
+          Text('配置训记 API Key 后可同步云端训练记录').fontSize(12).fontColor('rgba(255,255,255,0.35)').margin({ top: 8 })
+          Button('配置同步').fontSize(14).fontColor(Color.White).backgroundColor($r('app.color.primary'))
+            .borderRadius(20).height(40).margin({ top: 16 })
+            .onClick(() => { this.openSettings(); })
+        }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+      } else {
+        Scroll() {
+          Column() {
+            if (!viewModel.xunjiTokenConfigured) {
+              Row() {
+                Text('未配置训记 API Key，数据仅来自本地').fontSize(11).fontColor($r('app.color.accent_orange')).layoutWeight(1)
+                Text('去配置').fontSize(11).fontColor($r('app.color.primary'))
+                  .onClick(() => { this.openSettings(); })
+              }.width('100%').padding(10).backgroundColor('rgba(255,152,0,0.12)').borderRadius(10).margin({ bottom: 12 })
+            } else if (viewModel.lastSyncDate) {
+              Text('上次同步：' + viewModel.lastSyncDate).fontSize(11).fontColor($r('app.color.text_secondary'))
+                .width('100%').margin({ bottom: 12 })
+            }
+
+            Row() {
+              this.card('📅', '' + this.statsDays, '训练天数')
+              this.card('💪', '' + this.statsSessions, '训练次数')
+            }.width('100%').margin({ bottom: 12 })
+            Row() {
+              this.card('📊', '' + viewModel.dashboardStats.totalSets, '总组数')
+              this.card('⏱️', Math.round(viewModel.dashboardStats.totalDurationMinutes / 60) + 'h', '总时长')
+            }.width('100%').margin({ bottom: 16 })
+            Row() {
+              this.card('🏋️', this.formatVolume(viewModel.dashboardStats.totalVolume), '累计容量')
+              this.card('🏆', '' + viewModel.dashboardStats.allPRs.length, 'PR动作')
+            }.width('100%').margin({ bottom: 16 })
+
+            Divider().height(0.5).color('rgba(255,255,255,0.1)').margin({ bottom: 16 })
+            Text('🔥 连续训练 ' + viewModel.dashboardStats.streakDays + ' 天').fontSize(18)
+              .fontColor($r('app.color.accent_orange')).fontWeight(FontWeight.Bold).margin({ bottom: 16 })
+
+            ProgressChart({
+              dataPoints: this.getWeeklyVolumePoints(),
+              title: '近 4 周训练容量',
+              unit: 'kg',
+              accentColor: '#FF9800'
+            }).margin({ bottom: 16 })
+
+            if (viewModel.dashboardStats.allPRs.length > 0) {
+              Column() {
+                Row() {
+                  Text('动作 PR 排行').fontSize(15).fontColor(Color.White).fontWeight(FontWeight.Medium).layoutWeight(1)
+                  Text('估算 1RM').fontSize(11).fontColor($r('app.color.text_secondary'))
+                }.width('100%').margin({ bottom: 8 })
+                ForEach(this.getTopPrs(), (pr: ExercisePR) => {
+                  OneRmBar({
+                    exerciseName: pr.exerciseName,
+                    oneRm: pr.estimatedOneRm,
+                    maxOneRm: this.getMaxPr()
+                  })
+                }, (pr: ExercisePR) => pr.exerciseName)
+              }.width('100%').padding(12).backgroundColor($r('app.color.card_background')).borderRadius(12)
+            }
+          }.width('100%').padding(16)
+        }.layoutWeight(1)
+      }
+
+      if (this.showSettingsDialog) { this.buildSettingsDialog(); }
     }.width('100%').height('100%').backgroundColor($r('app.color.background'))
   }
 
   @Builder
-  buildLoading() {
+  buildSettingsDialog() {
     Column() {
-      LoadingProgress().color($r('app.color.primary')).width(40).height(40)
-      Text('加载训练数据...').fontSize(14).fontColor($r('app.color.text_secondary')).margin({ top: 16 })
-    }.width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
-  }
-
-  @Builder
-  buildEmpty() {
-    Column() {
-      Text('🏋️').fontSize(48)
-      Text('暂无训练数据').fontSize(16).fontColor($r('app.color.text_secondary')).margin({ top: 12 })
-      Text('请先同步训练数据到 training_data.json').fontSize(13).fontColor($r('app.color.text_secondary')).margin({ top: 4 })
-    }.width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
-  }
-
-  @Builder
-  buildError() {
-    Column() {
-      Text('⚠️').fontSize(48)
-      Text('加载失败').fontSize(16).fontColor($r('app.color.accent_red')).margin({ top: 12 })
-      Text(viewModel.loadError).fontSize(13).fontColor($r('app.color.text_secondary')).margin({ top: 4 }).textAlign(TextAlign.Center).padding({ left: 32, right: 32 })
-    }.width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
-  }
-
-  @Builder
-  buildDashboard() {
-    Scroll() {
       Column() {
-        Column() {
-          Row() {
-            StatCard({ label: '总训练天数', value: '' + viewModel.dashboardStats.totalTrainingDays, unit: '天', icon: '📅' }).width('48%')
-            StatCard({ label: '总训练次数', value: '' + viewModel.dashboardStats.totalSessions, unit: '次', icon: '💪' }).width('48%')
-          }.width('100%').justifyContent(FlexAlign.SpaceBetween).margin({ bottom: 12 })
-          Row() {
-            StatCard({ label: '总组数', value: '' + viewModel.dashboardStats.totalSets, unit: '组', icon: '📊' }).width('48%')
-            StatCard({ label: '总训练时长', value: '' + Math.round(viewModel.dashboardStats.totalDurationMinutes / 60) + 'h', unit: '', icon: '⏱️' }).width('48%')
-          }.width('100%').justifyContent(FlexAlign.SpaceBetween)
-        }.width('100%')
+        Text('训记数据同步').fontSize(16).fontColor(Color.White).fontWeight(FontWeight.Bold).width('100%').margin({ bottom: 8 })
+        Text('在训记 App 中复制 Open API Key，粘贴到下方以同步最近 14 天训练数据。')
+          .fontSize(11).fontColor($r('app.color.text_secondary')).width('100%').margin({ bottom: 12 })
 
-        Divider().height(0.5).color('rgba(255,255,255,0.06)').margin({ top: 16, bottom: 16 })
-
-        Column() {
-          Text('三大项 1RM').fontSize(16).fontColor(Color.White).fontWeight(FontWeight.Bold).width('100%').margin({ bottom: 12 })
-          if (viewModel.dashboardStats.bigThreePRs.length === 0) {
-            Text('暂无三大项训练数据').fontSize(13).fontColor($r('app.color.text_secondary')).width('100%').textAlign(TextAlign.Center).padding(16)
-          } else {
-            ForEach(viewModel.dashboardStats.bigThreePRs, (pr: ExercisePR) => {
-              OneRmBar({ exerciseName: pr.exerciseName, oneRm: pr.estimatedOneRm, maxOneRm: this.getMaxRm(), barColor: getBigThreeColor(pr.exerciseName) })
-            }, (pr: ExercisePR) => pr.exerciseName)
-            ForEach(viewModel.dashboardStats.bigThreePRs, (pr: ExercisePR) => {
-              Row() {
-                Text(pr.date).fontSize(11).fontColor($r('app.color.text_secondary'))
-                Text(pr.weight + 'kg × ' + pr.reps + '次').fontSize(11).fontColor($r('app.color.text_secondary'))
-              }.width('100%').justifyContent(FlexAlign.SpaceBetween).padding({ left: 8, top: 2 })
-            }, (pr: ExercisePR) => pr.exerciseName + '_d')
-          }
-        }.width('100%').padding(16).backgroundColor($r('app.color.card_background')).borderRadius(12).margin({ bottom: 16 })
+        TextInput({ placeholder: 'xjllm_...', text: this.xunjiTokenInput })
+          .height(44).fontSize(14).backgroundColor($r('app.color.card_background')).borderRadius(10).padding({ left: 12 })
+          .type(InputType.Password).onChange((v: string) => { this.xunjiTokenInput = v; })
 
         Row() {
-          Text('🔥').fontSize(28)
-          Column() {
-            Text('' + viewModel.dashboardStats.streakDays).fontSize(36).fontColor($r('app.color.accent_orange')).fontWeight(FontWeight.Bold)
-            Text('连续训练天数').fontSize(13).fontColor($r('app.color.text_secondary'))
-          }.margin({ left: 16 }).alignItems(HorizontalAlign.Start)
-        }.width('100%').padding(20).backgroundColor($r('app.color.card_background')).borderRadius(12).alignItems(VerticalAlign.Center).justifyContent(FlexAlign.Start)
-      }.padding(16).width('100%')
-    }.scrollable(ScrollDirection.Vertical).scrollBar(BarState.Off)
-  }
-}
+          Text(viewModel.xunjiTokenConfigured ? '● 已配置 Key' : '○ 未配置 Key')
+            .fontSize(11).fontColor(viewModel.xunjiTokenConfigured ? $r('app.color.accent_green') : $r('app.color.text_secondary'))
+          Blank()
+          if (viewModel.lastSyncDate) {
+            Text('上次同步 ' + viewModel.lastSyncDate).fontSize(11).fontColor($r('app.color.text_secondary'))
+          }
+        }.width('100%').margin({ top: 8, bottom: 8 })
 
-function getBigThreeColor(name: string): ResourceColor {
-  if (name === '深蹲') return '#FF6C63FF';
-  if (name === '杠铃卧推') return '#FF4CAF50';
-  if (name === '硬拉') return '#FFFF9800';
-  return $r('app.color.primary');
+        if (this.syncHint) {
+          Text(this.syncHint).fontSize(11).fontColor($r('app.color.text_secondary')).width('100%').margin({ bottom: 8 })
+        }
+        if (viewModel.syncError) {
+          Text(viewModel.syncError).fontSize(11).fontColor($r('app.color.accent_red')).width('100%').margin({ bottom: 8 })
+        }
+
+        Row() {
+          Button('取消').backgroundColor('rgba(255,255,255,0.1)').borderRadius(20).height(40)
+            .onClick(() => { this.showSettingsDialog = false; })
+          Button(this.isSyncing ? '同步中...' : '立即同步')
+            .backgroundColor('rgba(255,255,255,0.12)').fontColor(Color.White).borderRadius(20).height(40).margin({ left: 8 })
+            .enabled(!this.isSyncing && viewModel.xunjiTokenConfigured)
+            .onClick(() => { this.syncNow(false); })
+          Button('保存').backgroundColor($r('app.color.primary')).borderRadius(20).height(40).margin({ left: 8 })
+            .enabled(!this.isSyncing)
+            .onClick(() => { this.saveTokenAndSync(); })
+        }.width('100%')
+      }.padding(24).backgroundColor($r('app.color.surface')).borderRadius(16).width('90%')
+        .onClick(() => {})
+    }.width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+      .backgroundColor('rgba(0,0,0,0.6)').onClick(() => { this.showSettingsDialog = false; })
+  }
+
+  @Builder card(icon: string, value: string, label: string) {
+    Column() {
+      Text(icon).fontSize(24)
+      Text(value).fontSize(20).fontColor(Color.White).fontWeight(FontWeight.Bold).margin({ top: 4 })
+      Text(label).fontSize(12).fontColor($r('app.color.text_secondary')).margin({ top: 2 })
+    }.alignItems(HorizontalAlign.Center).layoutWeight(1).padding(12)
+      .backgroundColor($r('app.color.card_background')).borderRadius(12).margin({ right: 6 })
+  }
+
+  async openSettings(): Promise<void> {
+    this.xunjiTokenInput = await Storage.getXunjiToken();
+    this.syncHint = '';
+    this.showSettingsDialog = true;
+  }
+
+  async saveTokenAndSync(): Promise<void> {
+    const token = this.xunjiTokenInput.trim();
+    if (!token) {
+      this.syncHint = '请输入训记 API Key';
+      return;
+    }
+    await viewModel.updateXunjiToken(token);
+    this.syncHint = 'Key 已保存';
+    await this.syncNow(true);
+  }
+
+  async syncNow(closeOnDone: boolean): Promise<void> {
+    if (this.isSyncing) return;
+    this.isSyncing = true;
+    this.syncHint = '正在同步最近 14 天数据...';
+    viewModel.syncError = '';
+    const added = await viewModel.syncFromApi();
+    this.isSyncing = false;
+    this.refreshStats();
+    if (viewModel.syncError) {
+      this.syncHint = viewModel.syncError;
+    } else if (added > 0) {
+      this.syncHint = '同步完成，合并 ' + added + ' 条记录';
+    } else {
+      this.syncHint = '同步完成，暂无新记录';
+    }
+    if (closeOnDone && !viewModel.syncError) {
+      this.showSettingsDialog = false;
+    }
+  }
+
+  private getWeeklyVolumePoints(): ChartPoint[] {
+    const weeks = viewModel.dashboardStats.recentWeeklyVolumes;
+    const points: ChartPoint[] = [];
+    for (let i = weeks.length - 1; i >= 0; i--) {
+      points.push({ date: weeks[i].weekStart, value: weeks[i].totalVolume });
+    }
+    return points;
+  }
+
+  private getTopPrs(): ExercisePR[] {
+    return viewModel.dashboardStats.allPRs.slice(0, 5);
+  }
+
+  private getMaxPr(): number {
+    const prs = this.getTopPrs();
+    let max = 0;
+    for (const pr of prs) if (pr.estimatedOneRm > max) max = pr.estimatedOneRm;
+    return max || 1;
+  }
+
+  private formatVolume(value: number): string {
+    if (value >= 1000) return Math.round(value / 100) / 10 + 't';
+    return value + 'kg';
+  }
 }

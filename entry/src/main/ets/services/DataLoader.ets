@@ -1,70 +1,72 @@
-/**
- * 数据加载器
- * 从 rawfile 加载 JSON 训练数据
- */
-
 import util from '@ohos.util';
 import { extractRecordsFromJson } from './DataParser';
 import { TrainingRecord } from '../models/TrainingRecord';
 import { Storage } from './PreferencesStorage';
 
-/** 从rawfile加载JSON并解析为TrainingRecord[] */
-export async function loadFromRawFile(context: any, fileName: string = 'training_data.json'): Promise<TrainingRecord[]> {
-  try {
-    // 鸿蒙资源管理器
-    const resourceMgr = context.resourceManager;
-    const data = await resourceMgr.getRawFileContent(fileName);
+interface ResMgr {
+  getRawFileContent(path: string): Promise<Uint8Array>;
+}
 
-    if (!data || data.length === 0) {
-      console.warn('DataLoader: rawfile is empty');
+interface AppContext {
+  resourceManager?: ResMgr;
+}
+
+export async function loadFromRawFile(ctx: Object, fileName: string): Promise<TrainingRecord[]> {
+  try {
+    let rawData: Uint8Array | null = null;
+    // Method 1: Context.resourceManager (standard API)
+    try {
+      const context = ctx as AppContext;
+      if (context.resourceManager) {
+        rawData = await context.resourceManager.getRawFileContent(fileName);
+      }
+    } catch (e) {
+      console.error('Loader m1: ' + JSON.stringify(e));
+    }
+    // Method 2: Fallback - access via Record
+    if (!rawData) {
+      try {
+        const mgr = (ctx as Record<string, Object>)['resourceManager'] as Record<string, Object>;
+        const func = mgr['getRawFileContent'] as Function;
+        rawData = await func(fileName) as Uint8Array;
+      } catch (e) {
+        console.error('Loader m2: ' + JSON.stringify(e));
+      }
+    }
+    // Method 3: Try getRawFileContentSync if available
+    if (!rawData) {
+      try {
+        const mgr = (ctx as Record<string, Object>)['resourceManager'] as Record<string, Object>;
+        const func = mgr['getRawFileContentSync'] as Function;
+        rawData = func(fileName) as Uint8Array;
+      } catch (e) {
+        console.error('Loader m3: ' + JSON.stringify(e));
+      }
+    }
+    if (!rawData || rawData.length === 0) {
+      console.error('Loader: all methods returned empty for ' + fileName);
       return [];
     }
 
-    // Uint8Array → string
-    const decoder = util.TextDecoder.create('utf-8');
-    const jsonStr = decoder.decodeToString(data);
-
-    const jsonData = JSON.parse(jsonStr);
-    const records = extractRecordsFromJson(jsonData);
-
-    console.info(`DataLoader: loaded ${records.length} records from ${fileName}`);
+    const uint8: Uint8Array = new Uint8Array(rawData);
+    const jsonStr = new util.TextDecoder('utf-8').decodeToString(uint8);
+    const parsed = JSON.parse(jsonStr) as Record<string, Object>;
+    const records = extractRecordsFromJson(parsed);
     return records;
   } catch (err) {
-    console.error(`DataLoader: failed to load ${fileName}`, JSON.stringify(err));
+    console.error('Loader catch: ' + JSON.stringify(err));
     return [];
   }
 }
 
-/** 从Preferences缓存加载 */
 export async function loadFromCache(): Promise<TrainingRecord[]> {
-  const cached = await Storage.getTrainingData<TrainingRecord[]>([]);
-  if (cached && cached.length > 0) {
-    console.info(`DataLoader: loaded ${cached.length} records from cache`);
-    return cached;
-  }
-  return [];
+  const c = await Storage.getTrainingData();
+  return (c as TrainingRecord[]) || [];
 }
 
-/**
- * 合并新数据到已有的记录中（去重）
- */
-export function mergeRecords(existing: TrainingRecord[], incoming: TrainingRecord[]): TrainingRecord[] {
-  const idMap = new Map<string, TrainingRecord>();
-
-  // 先加入现有记录
-  for (const r of existing) {
-    idMap.set(r.id, r);
-  }
-
-  // 合并新记录
-  for (const r of incoming) {
-    if (!idMap.has(r.id)) {
-      idMap.set(r.id, r);
-    }
-  }
-
-  // 按日期排序（最新的在前）
-  return Array.from(idMap.values()).sort(
-    (a, b) => b.date.localeCompare(a.date) || b.startTime - a.startTime
-  );
+export function mergeRecords(a: TrainingRecord[], b: TrainingRecord[]): TrainingRecord[] {
+  const m = new Map<string, TrainingRecord>();
+  for (const r of a) m.set(r.id, r);
+  for (const r of b) m.set(r.id, r);
+  return Array.from(m.values()).sort((x, y) => y.date.localeCompare(x.date) || y.startTime - x.startTime);
 }
