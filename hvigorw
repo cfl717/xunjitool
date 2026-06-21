@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+# ----------------------------------------------------------------------------
+#  Hvigor startup script, version 1.0.0
+#
+#  Required ENV vars:
+#    NODE_HOME - location of a Node home dir
+# ----------------------------------------------------------------------------
+
+HVIGOR_APP_HOME="$(dirname "$(echo "$0" | sed -e 's,\\,/,g')")"
+HVIGOR_WRAPPER_HOME="/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin"
+HVIGOR_WRAPPER_SCRIPT="$HVIGOR_WRAPPER_HOME/hvigorw.js"
+
+warn() {
+	echo ""
+	echo -e "\033[1;33m`date '+[%Y-%m-%d %H:%M:%S]'`$@\033[0m"
+}
+error() {
+	echo ""
+	echo -e "\033[1;31m`date '+[%Y-%m-%d %H:%M:%S]'`$@\033[0m"
+}
+fail() {
+	error "$@"
+	exit 1
+}
+
+if [ -n "${NODE_HOME}" ]; then
+   if [ -x "${NODE_HOME}/bin/node" ]; then
+      EXECUTABLE_NODE="${NODE_HOME}/bin/node"
+   elif [ -x "${NODE_HOME}/node.exe" ]; then
+      EXECUTABLE_NODE="${NODE_HOME}/node.exe"
+   else
+      fail "ERROR: NODE_HOME is set to an invalid directory, check $NODE_HOME"
+   fi
+else
+   EXECUTABLE_NODE="/Applications/DevEco-Studio.app/Contents/tools/node/bin/node"
+   if [ ! -x "$EXECUTABLE_NODE" ]; then
+     EXECUTABLE_NODE="node"
+   fi
+fi
+
+if [ ! -r "$HVIGOR_WRAPPER_SCRIPT" ]; then
+	fail "ERROR: Couldn't find hvigorw.js in ${HVIGOR_WRAPPER_HOME}"
+fi
+
+exec "${EXECUTABLE_NODE}" "${HVIGOR_WRAPPER_SCRIPT}" "$@"
