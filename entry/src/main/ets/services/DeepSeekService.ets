@@ -25,8 +25,20 @@ export async function callDeepSeek(config: DeepSeekConfig, messages: ApiMessage[
     });
     if (response.responseCode !== 200) { throw new Error('API请求失败: ' + response.responseCode); }
     const data = response.result as Record<string, Object>;
-    const choices = data['choices'] as Record<string, Object>[];
-    return (choices[0]['message'] as Record<string, Object>)['content'] as string || '';
+    // Check for API error response (no 'choices' field)
+    const respErr = data['error'] as Record<string, Object> | undefined;
+    if (respErr) {
+      throw new Error((respErr['message'] as string) || 'API返回错误');
+    }
+    const choices = data['choices'] as Record<string, Object>[] | undefined;
+    if (!choices || choices.length === 0) {
+      throw new Error('API返回数据异常');
+    }
+    const msg = choices[0]['message'] as Record<string, Object> | undefined;
+    if (!msg) {
+      throw new Error('API返回消息格式异常');
+    }
+    return (msg['content'] as string) || '';
   } finally {
     httpRequest.destroy();
   }
