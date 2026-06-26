@@ -82,4 +82,6 @@ viewmodel/
 - **错误处理**: API 调用失败不阻断主流程，降级到本地数据或内置样本数据。异步异常用 `.catch()` 静默处理。
 
 ## Notes
-- (预留)
+- **闪退排查**: 先回退到最简版本（纯 Text + Row，无 ForEach 嵌套、无 `@Builder`）验证基础功能，再逐步加复杂 UI 定位崩溃点。不要用 `Map.keys()` 迭代器、`Array.from()`。
+- **构建环境**: 确保 `JAVA_HOME` 指向 DevEco Studio 内置 JDK (`/Applications/DevEco-Studio.app/Contents/jbr/Contents/Home`)，`DEVECO_SDK_HOME` 指向 SDK 根目录。
+- **安装**: 优先用 `hdc install -r` 增量安装，不丢失缓存数据。需要全新安装时先 `uninstall`。
