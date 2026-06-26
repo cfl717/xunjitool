@@ -17,3 +17,7 @@ oh_modules/
 node_modules/
 entry/node_modules/
 *.log
+
+# Project config (local machine specific)
+build-profile.json5
+local.properties
