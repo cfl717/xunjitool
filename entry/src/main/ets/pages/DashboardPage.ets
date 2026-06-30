@@ -1,5 +1,6 @@
 import { viewModel } from '../viewmodel/TrainingViewModel';
 import { ExercisePR } from '../models/DashboardStats';
+import { MAJOR_LIFTS } from '../models/TrainingRecord';
 import { ProgressChart } from '../components/ProgressChart';
 import { OneRmBar } from '../components/OneRmBar';
 import { Storage } from '../services/PreferencesStorage';
@@ -202,7 +203,18 @@ export struct DashboardPage {
   }
 
   private getTopPrs(): ExercisePR[] {
-    return viewModel.dashboardStats.allPRs.slice(0, 5);
+    const keyLifts: ExercisePR[] = [];
+    for (const pr of viewModel.dashboardStats.allPRs) {
+      for (const name of MAJOR_LIFTS) {
+        if (pr.exerciseName === name) {
+          keyLifts.push(pr);
+          break;
+        }
+      }
+    }
+    // 按 1RM 从高到低排序
+    keyLifts.sort((a, b) => b.estimatedOneRm - a.estimatedOneRm);
+    return keyLifts;
   }
 
   private getMaxPr(): number {

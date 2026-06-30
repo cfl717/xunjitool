@@ -94,6 +94,7 @@ export const EXERCISE_NAME_ALIASES: Record<string, string> = {
 
 /** 三大项动作名称 */
 export const BIG_THREE_EXERCISES: string[] = ['深蹲', '杠铃卧推', '硬拉'];
+export const MAJOR_LIFTS: string[] = ['深蹲', '杠铃卧推', '硬拉', '杠铃实力推'];
 
 /**
  * 通过原始CSV记录判断训练类型

@@ -1,28 +1,54 @@
 import http from '@ohos.net.http';
-import util from '@ohos.util';
 import { DeepSeekConfig } from '../models/AiConversation';
-import { DEEPSEEK_API } from '../utils/Constants';
+import { DEEPSEEK_API, DEEPSEEK_MODELS } from '../utils/Constants';
 
 interface ApiMessage { role: string; content: string; }
 
-export type { ApiMessage };
+interface ApiResult {
+  content: string;
+  reasoningContent?: string;
+}
+
+export type { ApiMessage, ApiResult };
+
+function isReasoningModel(config: DeepSeekConfig): boolean {
+  for (const m of DEEPSEEK_MODELS) {
+    if (m.name === config.model && m.supportsReasoning) return true;
+  }
+  return false;
+}
 
 export function buildSystemPrompt(trainingContext: string): string {
   return '你是专业的健身教练助手，帮助用户分析训练数据并提供建议。\n当前用户的训练数据概况：\n' + trainingContext + '\n请根据以上数据给出专业的分析和建议。回答要具体、有数据支撑、可操作。使用中文。';
 }
 
-export async function callDeepSeek(config: DeepSeekConfig, messages: ApiMessage[]): Promise<string> {
+export async function callDeepSeek(config: DeepSeekConfig, messages: ApiMessage[]): Promise<ApiResult> {
   if (!config.apiKey) { throw new Error('请先设置 DeepSeek API Key'); }
   const httpRequest = http.createHttp();
+  const isReasoning = isReasoningModel(config);
+
   try {
+    // 构造请求体
+    const modelName: string = config.model || DEEPSEEK_API.MODEL;
+    const reqBody: Record<string, Object> = {};
+    reqBody['model'] = modelName;
+    reqBody['messages'] = messages;
+    reqBody['max_tokens'] = config.maxTokens ?? 4096;
+    reqBody['stream'] = false;
+
+    // reasoning 模型不支持 temperature 但支持 reasoning_effort
+    if (isReasoning) {
+      reqBody['reasoning_effort'] = 'high';
+    } else {
+      reqBody['temperature'] = config.temperature ?? 0.7;
+    }
+
     const response = await httpRequest.request(DEEPSEEK_API.BASE_URL + DEEPSEEK_API.CHAT_ENDPOINT, {
       method: http.RequestMethod.POST,
       header: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + config.apiKey },
-      extraData: JSON.stringify({
-        model: config.model || DEEPSEEK_API.MODEL, messages: messages,
-        temperature: config.temperature ?? 0.7, max_tokens: config.maxTokens ?? 4096, stream: false
-      }),
-      connectTimeout: DEEPSEEK_API.TIMEOUT_MS, readTimeout: DEEPSEEK_API.TIMEOUT_MS
+      extraData: JSON.stringify(reqBody),
+      connectTimeout: DEEPSEEK_API.TIMEOUT_MS,
+      readTimeout: DEEPSEEK_API.TIMEOUT_MS
     });
     if (response.responseCode !== 200) { throw new Error('API请求失败: ' + response.responseCode); }
     let data: Record<string, Object>;
@@ -31,95 +57,33 @@ export async function callDeepSeek(config: DeepSeekConfig, messages: ApiMessage[
     } else {
       data = response.result as Record<string, Object>;
     }
-    // Check for API error response (no 'choices' field)
     const respErr = data['error'] as Record<string, Object> | undefined;
-    if (respErr) {
-      throw new Error((respErr['message'] as string) || 'API返回错误');
-    }
+    if (respErr) { throw new Error((respErr['message'] as string) || 'API返回错误'); }
     const choices = data['choices'] as Record<string, Object>[] | undefined;
-    if (!choices || choices.length === 0) {
-      throw new Error('API返回数据异常');
-    }
+    if (!choices || choices.length === 0) { throw new Error('API返回数据异常'); }
     const msg = choices[0]['message'] as Record<string, Object> | undefined;
-    if (!msg) {
-      throw new Error('API返回消息格式异常');
+    if (!msg) { throw new Error('API返回消息格式异常'); }
+    const result: ApiResult = {
+      content: (msg['content'] as string) || ''
+    };
+    if (isReasoning) {
+      const rc = msg['reasoning_content'] as string | undefined;
+      if (rc) result.reasoningContent = rc;
     }
-    return (msg['content'] as string) || '';
+    return result;
   } finally {
     httpRequest.destroy();
   }
 }
 
-/**
- * 流式调用 DeepSeek API（SSE），每次收到内容时回调 onChunk
- * 返回完整内容
- */
 export async function callDeepSeekStream(
   config: DeepSeekConfig,
   messages: ApiMessage[],
-  onChunk: (text: string) => void
-): Promise<string> {
-  if (!config.apiKey) { throw new Error('请先设置 DeepSeek API Key'); }
-  const httpRequest = http.createHttp();
-  let fullContent = '';
-  let responseCode = -1;
-
-  try {
-    httpRequest.on('headersReceive', (header: Object) => {
-      const h = header as Record<string, Object>;
-      if (typeof h['responseCode'] === 'number') { responseCode = h['responseCode']; }
-    });
-
-    const promise = httpRequest.request(
-      DEEPSEEK_API.BASE_URL + DEEPSEEK_API.CHAT_ENDPOINT,
-      {
-        method: http.RequestMethod.POST,
-        header: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + config.apiKey,
-          'Accept': 'text/event-stream'
-        },
-        extraData: JSON.stringify({
-          model: config.model || DEEPSEEK_API.MODEL, messages: messages,
-          temperature: config.temperature ?? 0.7, max_tokens: config.maxTokens ?? 4096,
-          stream: true
-        }),
-        connectTimeout: DEEPSEEK_API.TIMEOUT_MS,
-        readTimeout: DEEPSEEK_API.TIMEOUT_MS * 3
-      }
-    );
-
-    let buffer = '';
-    httpRequest.on('dataReceive', (data: ArrayBuffer) => {
-      const uint8 = new Uint8Array(data);
-      const chunk = new util.TextDecoder('utf-8').decodeToString(uint8);
-      buffer += chunk;
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      for (const line of lines) {
-        const t = line.trim();
-        if (t.startsWith('data: ')) {
-          const json = t.substring(6);
-          if (json === '[DONE]') continue;
-          try {
-            const p = JSON.parse(json) as Record<string, Object>;
-            const choices = p['choices'] as Record<string, Object>[] | undefined;
-            if (choices && choices.length > 0) {
-              const delta = choices[0]['delta'] as Record<string, Object> | undefined;
-              const c = delta ? delta['content'] as string | undefined : undefined;
-              if (c) { fullContent += c; onChunk(c); }
-            }
-          } catch (e) {}
-        }
-      }
-    });
-
-    await promise;
-    if (responseCode !== -1 && responseCode !== 200) {
-      throw new Error('API请求失败: ' + responseCode);
-    }
-    return fullContent;
-  } finally {
-    httpRequest.destroy();
-  }
+  onChunk: (text: string) => void,
+  onReasoning?: (text: string) => void
+): Promise<ApiResult> {
+  const result = await callDeepSeek(config, messages);
+  if (result.content) onChunk(result.content);
+  if (result.reasoningContent && onReasoning) onReasoning(result.reasoningContent);
+  return result;
 }

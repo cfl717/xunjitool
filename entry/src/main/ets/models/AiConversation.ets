@@ -17,6 +17,8 @@ export interface ChatMessage {
   role: ChatRole;
   /** 消息正文 */
   content: string;
+  /** 思考过程（deepseek-reasoner） */
+  reasoningContent?: string;
   /** 发送时间戳 */
   timestamp: number;
   /** 是否正在接收中（流式响应） */
