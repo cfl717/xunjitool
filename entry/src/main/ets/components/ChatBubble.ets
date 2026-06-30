@@ -1,8 +1,9 @@
-import { ChatMessage, ChatRole } from '../models/AiConversation';
+import { ChatMessageModel, ChatRole } from '../models/AiConversation';
+import { MarkdownContent } from './MarkdownContent';
 
 @Component
 export struct ChatBubble {
-  message: ChatMessage = { id: '', role: ChatRole.ASSISTANT, content: '', timestamp: 0, isStreaming: false };
+  @ObjectLink message: ChatMessageModel;
   onEditRequest?: (content: string) => void;
   @State showReasoning: boolean = false;
 
@@ -10,20 +11,19 @@ export struct ChatBubble {
     Row() {
       if (this.message.role === ChatRole.USER) {
         Blank()
-        this.buildBubble()
+        this.buildBubble(true)
       } else {
         Text('AI').fontSize(11).fontColor(Color.White).fontWeight(FontWeight.Bold).width(32).height(32).textAlign(TextAlign.Center)
-          .backgroundColor($r('app.color.primary')).borderRadius(16).margin({ right: 8 })
-        this.buildBubble()
+          .backgroundColor($r('app.color.primary')).borderRadius(16).margin({ right: 8 }).flexShrink(0)
+        this.buildBubble(false)
       }
     }.width('100%').alignItems(VerticalAlign.Top).padding({ top: 6, bottom: 6, left: 12, right: 12 })
   }
 
   @Builder
-  buildBubble() {
+  buildBubble(isUser: boolean) {
     Column() {
-      // 思考过程（可折叠）
-      if (this.message.reasoningContent) {
+      if (this.message.reasoningContent.length > 0) {
         Row() {
           Text('🤔 思考过程').fontSize(11).fontColor($r('app.color.accent_orange'))
           Text(this.showReasoning ? '▾ 收起' : '▸ 展开').fontSize(10).fontColor($r('app.color.text_secondary')).margin({ left: 6 })
@@ -31,30 +31,42 @@ export struct ChatBubble {
         if (this.showReasoning) {
           Text(this.message.reasoningContent).fontSize(12).fontColor($r('app.color.accent_orange')).lineHeight(18)
             .opacity(0.8).margin({ bottom: 8 })
+            .width('100%').wordBreak(WordBreak.BREAK_WORD)
         }
       }
 
-      Text(this.message.content).fontSize(14).fontColor(Color.White).lineHeight(20)
-        .textAlign(this.message.role === ChatRole.USER ? TextAlign.End : TextAlign.Start)
-        .onClick(() => {
-          if (this.message.role === ChatRole.USER && this.onEditRequest) {
-            this.onEditRequest(this.message.content);
-          }
-        })
+      if (this.message.role === ChatRole.ASSISTANT) {
+        MarkdownContent({ content: this.message.content })
+          .width('100%')
+      } else {
+        Text(this.message.content).fontSize(14).fontColor(Color.White).lineHeight(20)
+          .textAlign(TextAlign.End).width('100%').wordBreak(WordBreak.BREAK_WORD)
+          .onClick(() => {
+            if (this.onEditRequest) {
+              this.onEditRequest(this.message.content);
+            }
+          })
+      }
       if (this.message.role === ChatRole.USER) {
         Text('点击编辑').fontSize(9).fontColor('rgba(255,255,255,0.3)').margin({ top: 2 })
       }
       if (this.message.isStreaming) {
-        LoadingProgress().width(16).height(16).color($r('app.color.primary')).margin({ top: 4 })
+        if (this.message.content.length > 0 || this.message.reasoningContent.length > 0) {
+          Text('▍').fontSize(14).fontColor($r('app.color.primary')).margin({ top: 2 })
+        } else {
+          LoadingProgress().width(16).height(16).color($r('app.color.primary')).margin({ top: 4 })
+        }
       }
-    }.padding(14)
-     .backgroundColor(this.message.role === ChatRole.USER ? $r('app.color.primary') : $r('app.color.card_background'))
+    }.padding(14).width('100%')
+     .backgroundColor(isUser ? $r('app.color.primary') : $r('app.color.card_background'))
      .borderRadius({
-       topLeft: this.message.role === ChatRole.USER ? 16 : 4,
-       topRight: this.message.role === ChatRole.USER ? 4 : 16,
+       topLeft: isUser ? 16 : 4,
+       topRight: isUser ? 4 : 16,
        bottomLeft: 16, bottomRight: 16
      })
-     .alignItems(this.message.role === ChatRole.USER ? HorizontalAlign.End : HorizontalAlign.Start)
-     .constraintSize({ maxWidth: '80%' })
+     .alignItems(isUser ? HorizontalAlign.End : HorizontalAlign.Start)
+     .clip(true)
+     .constraintSize(isUser ? { maxWidth: '80%' } : { maxWidth: '100%' })
+     .layoutWeight(isUser ? 0 : 1)
   }
 }

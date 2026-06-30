@@ -1,5 +1,5 @@
 import { viewModel, LoadState } from '../viewmodel/TrainingViewModel';
-import { ChatMessage, ChatRole, PROMPT_TEMPLATES, PromptTemplate } from '../models/AiConversation';
+import { ChatMessage, ChatMessageModel, ChatRole, PROMPT_TEMPLATES, PromptTemplate } from '../models/AiConversation';
 import { ChatBubble } from '../components/ChatBubble';
 import { PromptChip } from '../components/PromptChip';
 import { callDeepSeek, callDeepSeekStream, buildSystemPrompt, ApiMessage, ApiResult } from '../services/DeepSeekService';
@@ -9,13 +9,14 @@ import { saveString } from '../services/PreferencesStorage';
 
 @Component
 export struct AICoachPage {
-  @State messages: ChatMessage[] = [];
+  @State messages: ChatMessageModel[] = [];
   @State inputText: string = '';
   @State isWaiting: boolean = false;
   @State showApiKeyDialog: boolean = false;
   @State showModelDialog: boolean = false;
   @State apiKeyInput: string = '';
   @State selectedModel: number = 0;
+  @State showScrollDown: boolean = false;
   private scroller: Scroller = new Scroller();
   private isLoaded: boolean = false;
 
@@ -46,7 +47,11 @@ export struct AICoachPage {
     try {
       const saved = await Storage.getChatMessages();
       if (saved.length > 0) {
-        this.messages = saved as ChatMessage[];
+        const list: ChatMessageModel[] = [];
+        for (const item of saved as ChatMessage[]) {
+          list.push(new ChatMessageModel(item));
+        }
+        this.messages = list;
       }
     } catch (e) {
       console.error('Failed to load chat history: ' + JSON.stringify(e));
@@ -55,7 +60,11 @@ export struct AICoachPage {
 
   async saveMessages(): Promise<void> {
     try {
-      await Storage.saveChatMessages(this.messages);
+      const plain: ChatMessage[] = [];
+      for (const m of this.messages) {
+        plain.push(m.toPlain());
+      }
+      await Storage.saveChatMessages(plain);
     } catch (e) {
       console.error('Failed to save chat history: ' + JSON.stringify(e));
     }
@@ -78,27 +87,58 @@ export struct AICoachPage {
         Text('⚙️').fontSize(20).onClick(() => { this.showApiKeyDialog = true; })
       }.width('100%').padding({ top: 16, bottom: 8, left: 20, right: 20 })
 
-      Scroll(this.scroller) {
-        Column() {
-          if (this.messages.length === 0) { this.buildWelcomeSection(); }
-          else {
-            ForEach(this.messages, (msg: ChatMessage) => {
-              ChatBubble({
-                message: msg,
-                onEditRequest: (content: string) => {
-                  this.inputText = content;
-                }
-              });
-            }, (msg: ChatMessage) => msg.id);
+      Stack({ alignContent: Alignment.Bottom }) {
+        Scroll(this.scroller) {
+          Column() {
+            if (this.messages.length === 0) { this.buildWelcomeSection(); }
+            else {
+              ForEach(this.messages, (msg: ChatMessageModel) => {
+                ChatBubble({
+                  message: msg,
+                  onEditRequest: (content: string) => {
+                    this.inputText = content;
+                  }
+                });
+              }, (msg: ChatMessageModel) => msg.id)
+            }
+          }.width('100%').padding({ bottom: 80 })
+        }
+        .width('100%')
+        .height('100%')
+        .scrollable(ScrollDirection.Vertical)
+        .scrollBar(BarState.Off)
+        .onDidScroll(() => { this.updateScrollDownBtn(); })
+        .onScrollEdge((edge: Edge) => {
+          if (edge === Edge.Bottom) {
+            this.showScrollDown = false;
           }
-        }.width('100%').padding({ bottom: 80 })
-      }.scrollable(ScrollDirection.Vertical).scrollBar(BarState.Off).layoutWeight(1)
+        })
+
+        if (this.showScrollDown && this.messages.length > 0) {
+          this.buildScrollDownBtn()
+        }
+      }.layoutWeight(1).width('100%')
 
       this.buildInputArea()
 
       if (this.showApiKeyDialog) { this.buildApiKeyDialog(); }
       if (this.showModelDialog) { this.buildModelDialog(); }
     }.width('100%').height('100%').backgroundColor($r('app.color.background'))
+  }
+
+  @Builder
+  buildScrollDownBtn() {
+    Row() {
+      Text('↓').fontSize(20).fontColor(Color.White).fontWeight(FontWeight.Bold)
+    }
+    .width(44).height(44)
+    .justifyContent(FlexAlign.Center)
+    .alignItems(VerticalAlign.Center)
+    .backgroundColor($r('app.color.primary'))
+    .borderRadius(22)
+    .shadow({ radius: 10, color: 'rgba(0,0,0,0.35)', offsetY: 2 })
+    .margin({ bottom: 16 })
+    .onClick(() => { this.scrollToBottom(); })
   }
 
   @Builder
@@ -185,8 +225,15 @@ export struct AICoachPage {
   async sendPrompt(tpl: PromptTemplate): Promise<void> {
     const ctx = this.buildContext();
     const sysPrompt = buildSystemPrompt(ctx);
-    const userMsg: ChatMessage = { id: 'msg_' + Date.now(), role: ChatRole.USER, content: '请执行：' + tpl.systemPrompt, timestamp: Date.now(), isStreaming: false };
+    const userMsg = new ChatMessageModel({
+      id: 'msg_' + Date.now(),
+      role: ChatRole.USER,
+      content: '请执行：' + tpl.systemPrompt,
+      timestamp: Date.now(),
+      isStreaming: false
+    });
     this.messages.push(userMsg);
+    this.messages = [...this.messages];
     this.saveMessages();
     this.isWaiting = true;
     try {
@@ -201,8 +248,16 @@ export struct AICoachPage {
     const text = this.inputText.trim();
     if (!text || this.isWaiting) return;
     this.inputText = '';
-    const userMsg: ChatMessage = { id: 'msg_' + Date.now(), role: ChatRole.USER, content: text, timestamp: Date.now(), isStreaming: false };
+    console.info('[AI] sendMessage text_len=' + text.length + ' isWaiting=' + this.isWaiting);
+    const userMsg = new ChatMessageModel({
+      id: 'msg_' + Date.now(),
+      role: ChatRole.USER,
+      content: text,
+      timestamp: Date.now(),
+      isStreaming: false
+    });
     this.messages.push(userMsg);
+    this.messages = [...this.messages];
     this.saveMessages();
     this.isWaiting = true;
     try {
@@ -210,17 +265,29 @@ export struct AICoachPage {
       const sysPrompt = !viewModel.deepSeekConfig.apiKey
         ? '你是AI健身教练。用户尚未设置API Key，提醒用户设置后即可获得个性化训练分析。'
         : buildSystemPrompt(ctx);
+      console.info('[AI] doChat start, model=' + viewModel.deepSeekConfig.model);
       await this.doChat(sysPrompt, text);
+      console.info('[AI] doChat completed');
     } catch (err) {
+      console.error('[AI] sendMessage catch: ' + JSON.stringify(err));
       this.addErr(err.message || '请求失败');
     }
     this.isWaiting = false;
+    console.info('[AI] isWaiting reset to false');
   }
 
   async doChat(sysPrompt: string, userContent: string): Promise<void> {
     const aid = 'msg_' + Date.now() + '_ai';
-    const asst: ChatMessage = { id: aid, role: ChatRole.ASSISTANT, content: '', timestamp: Date.now(), isStreaming: true };
+    console.info('[AI] doChat creating message id=' + aid);
+    const asst = new ChatMessageModel({
+      id: aid,
+      role: ChatRole.ASSISTANT,
+      content: '',
+      timestamp: Date.now(),
+      isStreaming: true
+    });
     this.messages.push(asst);
+    this.messages = [...this.messages];
     this.saveMessages();
 
     const apiMessages: ApiMessage[] = [{ role: 'system', content: sysPrompt }];
@@ -230,31 +297,67 @@ export struct AICoachPage {
         apiMessages.push(msg);
       }
     }
+    console.info('[AI] doChat apiMessages=' + apiMessages.length + ' (includes system)');
 
+    let content = '';
+    let reasoning = '';
     try {
-      const result: ApiResult = await callDeepSeekStream(viewModel.deepSeekConfig, apiMessages, (chunk: string) => {
-        // non-streaming: 一次性回调，直接显示完整内容
-      });
+      const result: ApiResult = await callDeepSeekStream(
+        viewModel.deepSeekConfig,
+        apiMessages,
+        (chunk: string) => {
+          content += chunk;
+          this.updateMsg(aid, content, true, reasoning);
+          this.scrollToBottom();
+        },
+        (rChunk: string) => {
+          reasoning += rChunk;
+          this.updateMsg(aid, content, true, reasoning);
+          this.scrollToBottom();
+        }
+      );
       const idx = this.findMsg(aid);
       if (idx >= 0) {
         this.messages[idx].content = result.content;
-        this.messages[idx].reasoningContent = result.reasoningContent;
+        this.messages[idx].reasoningContent = result.reasoningContent ?? '';
         this.messages[idx].isStreaming = false;
-        this.messages = [...this.messages];
         this.saveMessages();
+        this.scrollToBottom();
       }
     } catch (err) {
+      console.error('[AI] doChat catch: ' + JSON.stringify(err));
+      const idx = this.findMsg(aid);
+      if (idx >= 0) {
+        this.messages.splice(idx, 1);
+        this.messages = [...this.messages];
+      }
       this.addErr(err.message || '请求失败');
     }
   }
 
-  updateMsg(id: string, content: string, streaming: boolean): void {
+  scrollToBottom(): void {
+    setTimeout(() => {
+      this.scroller.scrollEdge(Edge.Bottom);
+      this.showScrollDown = false;
+    }, 50);
+  }
+
+  updateScrollDownBtn(): void {
+    if (this.messages.length === 0) {
+      this.showScrollDown = false;
+      return;
+    }
+    this.showScrollDown = !this.scroller.isAtEnd();
+  }
+
+  updateMsg(id: string, content: string, streaming: boolean, reasoning: string = ''): void {
     const idx = this.findMsg(id);
     if (idx >= 0) {
       this.messages[idx].content = content;
       this.messages[idx].isStreaming = streaming;
-      this.messages = [...this.messages];
-      this.saveMessages();
+      if (reasoning.length > 0) {
+        this.messages[idx].reasoningContent = reasoning;
+      }
     }
   }
 
@@ -266,7 +369,15 @@ export struct AICoachPage {
   }
 
   addErr(text: string): void {
-    this.messages.push({ id: 'err_' + Date.now(), role: ChatRole.ASSISTANT, content: '⚠️ ' + text, timestamp: Date.now(), isStreaming: false });
+    const errMsg = new ChatMessageModel({
+      id: 'err_' + Date.now(),
+      role: ChatRole.ASSISTANT,
+      content: '⚠️ ' + text,
+      timestamp: Date.now(),
+      isStreaming: false
+    });
+    this.messages.push(errMsg);
+    this.messages = [...this.messages];
     this.saveMessages();
   }
 

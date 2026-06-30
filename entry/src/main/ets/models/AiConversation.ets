@@ -9,7 +9,7 @@ export enum ChatRole {
   SYSTEM = 'system'
 }
 
-/** 单条聊天消息 */
+/** 单条聊天消息（持久化用） */
 export interface ChatMessage {
   /** 消息唯一ID */
   id: string;
@@ -23,6 +23,43 @@ export interface ChatMessage {
   timestamp: number;
   /** 是否正在接收中（流式响应） */
   isStreaming: boolean;
+}
+
+/** 可观察聊天消息（UI 绑定用，支持流式实时刷新） */
+@Observed
+export class ChatMessageModel {
+  id: string = '';
+  role: ChatRole = ChatRole.ASSISTANT;
+  @Track content: string = '';
+  @Track reasoningContent: string = '';
+  @Track isStreaming: boolean = false;
+  timestamp: number = 0;
+
+  constructor(data?: ChatMessage) {
+    if (!data) {
+      return;
+    }
+    this.id = data.id;
+    this.role = data.role;
+    this.content = data.content;
+    this.reasoningContent = data.reasoningContent ?? '';
+    this.isStreaming = data.isStreaming;
+    this.timestamp = data.timestamp;
+  }
+
+  toPlain(): ChatMessage {
+    const msg: ChatMessage = {
+      id: this.id,
+      role: this.role,
+      content: this.content,
+      timestamp: this.timestamp,
+      isStreaming: this.isStreaming
+    };
+    if (this.reasoningContent.length > 0) {
+      msg.reasoningContent = this.reasoningContent;
+    }
+    return msg;
+  }
 }
 
 /** 预设Prompt类型 */
