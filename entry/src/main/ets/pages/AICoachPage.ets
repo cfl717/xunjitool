@@ -19,6 +19,7 @@ export struct AICoachPage {
   @State showScrollDown: boolean = false;
   private scroller: Scroller = new Scroller();
   private isLoaded: boolean = false;
+  private scrollScheduled: boolean = false;
 
   aboutToAppear(): void {
     this.apiKeyInput = viewModel.deepSeekConfig.apiKey;
@@ -48,8 +49,18 @@ export struct AICoachPage {
       const saved = await Storage.getChatMessages();
       if (saved.length > 0) {
         const list: ChatMessageModel[] = [];
-        for (const item of saved as ChatMessage[]) {
-          list.push(new ChatMessageModel(item));
+        for (const raw of saved as ChatMessage[]) {
+          const plain: ChatMessage = {
+            id: raw.id ?? ('msg_' + Date.now()),
+            role: raw.role ?? ChatRole.ASSISTANT,
+            content: raw.content ?? '',
+            timestamp: raw.timestamp ?? Date.now(),
+            isStreaming: false
+          };
+          if (raw.reasoningContent) {
+            plain.reasoningContent = raw.reasoningContent;
+          }
+          list.push(new ChatMessageModel(plain));
         }
         this.messages = list;
       }
@@ -94,7 +105,10 @@ export struct AICoachPage {
             else {
               ForEach(this.messages, (msg: ChatMessageModel) => {
                 ChatBubble({
-                  message: msg,
+                  content: msg.content,
+                  role: msg.role,
+                  reasoningContent: msg.reasoningContent,
+                  isStreaming: msg.isStreaming,
                   onEditRequest: (content: string) => {
                     this.inputText = content;
                   }
@@ -107,7 +121,7 @@ export struct AICoachPage {
         .height('100%')
         .scrollable(ScrollDirection.Vertical)
         .scrollBar(BarState.Off)
-        .onDidScroll(() => { this.updateScrollDownBtn(); })
+        .onScrollStop(() => { this.updateScrollDownBtn(); })
         .onScrollEdge((edge: Edge) => {
           if (edge === Edge.Bottom) {
             this.showScrollDown = false;
@@ -318,9 +332,8 @@ export struct AICoachPage {
       );
       const idx = this.findMsg(aid);
       if (idx >= 0) {
-        this.messages[idx].content = result.content;
-        this.messages[idx].reasoningContent = result.reasoningContent ?? '';
-        this.messages[idx].isStreaming = false;
+        const finalReasoning = result.reasoningContent ?? reasoning;
+        this.replaceMsgAt(idx, result.content, false, finalReasoning);
         this.saveMessages();
         this.scrollToBottom();
       }
@@ -336,9 +349,16 @@ export struct AICoachPage {
   }
 
   scrollToBottom(): void {
+    if (this.scrollScheduled) return;
+    this.scrollScheduled = true;
     setTimeout(() => {
-      this.scroller.scrollEdge(Edge.Bottom);
-      this.showScrollDown = false;
+      try {
+        this.scroller.scrollEdge(Edge.Bottom);
+        this.showScrollDown = false;
+      } catch (e) {
+        console.error('[AI] scrollToBottom failed: ' + JSON.stringify(e));
+      }
+      this.scrollScheduled = false;
     }, 50);
   }
 
@@ -347,18 +367,43 @@ export struct AICoachPage {
       this.showScrollDown = false;
       return;
     }
-    this.showScrollDown = !this.scroller.isAtEnd();
+    try {
+      this.showScrollDown = !this.scroller.isAtEnd();
+    } catch (e) {
+      this.showScrollDown = false;
+    }
   }
 
   updateMsg(id: string, content: string, streaming: boolean, reasoning: string = ''): void {
     const idx = this.findMsg(id);
     if (idx >= 0) {
-      this.messages[idx].content = content;
-      this.messages[idx].isStreaming = streaming;
-      if (reasoning.length > 0) {
-        this.messages[idx].reasoningContent = reasoning;
+      const old = this.messages[idx];
+      const rc = reasoning.length > 0 ? reasoning : old.reasoningContent;
+      this.replaceMsgAt(idx, content, streaming, rc);
+    }
+  }
+
+  replaceMsgAt(idx: number, content: string, streaming: boolean, reasoning: string): void {
+    const old = this.messages[idx];
+    const plain: ChatMessage = {
+      id: old.id,
+      role: old.role,
+      content: content,
+      timestamp: old.timestamp,
+      isStreaming: streaming
+    };
+    if (reasoning.length > 0) {
+      plain.reasoningContent = reasoning;
+    }
+    const arr: ChatMessageModel[] = [];
+    for (let i = 0; i < this.messages.length; i++) {
+      if (i === idx) {
+        arr.push(new ChatMessageModel(plain));
+      } else {
+        arr.push(this.messages[i]);
       }
     }
+    this.messages = arr;
   }
 
   findMsg(id: string): number {

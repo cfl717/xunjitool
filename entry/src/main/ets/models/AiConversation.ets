@@ -39,12 +39,12 @@ export class ChatMessageModel {
     if (!data) {
       return;
     }
-    this.id = data.id;
-    this.role = data.role;
-    this.content = data.content;
+    this.id = data.id ?? '';
+    this.role = data.role ?? ChatRole.ASSISTANT;
+    this.content = data.content ?? '';
     this.reasoningContent = data.reasoningContent ?? '';
-    this.isStreaming = data.isStreaming;
-    this.timestamp = data.timestamp;
+    this.isStreaming = data.isStreaming ?? false;
+    this.timestamp = data.timestamp ?? Date.now();
   }
 
   toPlain(): ChatMessage {

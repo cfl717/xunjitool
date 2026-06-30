@@ -11,7 +11,7 @@ export const STORAGE_KEYS: StorageKeys = {
 
 export const DEEPSEEK_API: DeepSeekApi = {
   BASE_URL: 'https://api.deepseek.com', CHAT_ENDPOINT: '/chat/completions',
-  MODEL: 'deepseek-chat', TIMEOUT_MS: 60000, STREAM_TIMEOUT_MS: 180000
+  MODEL: 'deepseek-chat', TIMEOUT_MS: 60000, STREAM_TIMEOUT_MS: 25000
 };
 
 const CHAT_MODEL: ModelOption = { name: 'deepseek-chat', label: 'DeepSeek Chat（快速）', supportsReasoning: false };

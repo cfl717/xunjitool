@@ -197,6 +197,40 @@ export async function callDeepSeekStream(
   }
 }
 
+async function delayMs(ms: number): Promise<void> {
+  return new Promise<void>((resolve: () => void) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function emitSimulatedStream(
+  result: ApiResult,
+  onChunk: (text: string) => void,
+  onReasoning?: (text: string) => void
+): Promise<ApiResult> {
+  if (result.reasoningContent && result.reasoningContent.length > 0 && onReasoning) {
+    const rc = result.reasoningContent;
+    let i = 0;
+    while (i < rc.length) {
+      const end = i + 16 > rc.length ? rc.length : i + 16;
+      onReasoning(rc.substring(i, end));
+      i = end;
+      await delayMs(12);
+    }
+  }
+  if (result.content.length > 0) {
+    const text = result.content;
+    let i = 0;
+    while (i < text.length) {
+      const end = i + 24 > text.length ? text.length : i + 24;
+      onChunk(text.substring(i, end));
+      i = end;
+      await delayMs(30);
+    }
+  }
+  return result;
+}
+
 async function callDeepSeekWithCallbacks(
   config: DeepSeekConfig,
   messages: ApiMessage[],
@@ -204,13 +238,7 @@ async function callDeepSeekWithCallbacks(
   onReasoning?: (text: string) => void
 ): Promise<ApiResult> {
   const result = await callDeepSeek(config, messages);
-  if (result.reasoningContent && onReasoning) {
-    onReasoning(result.reasoningContent);
-  }
-  if (result.content.length > 0) {
-    onChunk(result.content);
-  }
-  return result;
+  return await emitSimulatedStream(result, onChunk, onReasoning);
 }
 
 function callDeepSeekStreamInternal(
@@ -233,6 +261,7 @@ function callDeepSeekStreamInternal(
   let responseCode = 0;
   let streamError = '';
   let settled = false;
+  let receivedAnyData = false;
 
   const finish = (resolve: (v: ApiResult) => void, reject: (e: Error) => void): void => {
     if (settled) return;
@@ -289,6 +318,7 @@ function callDeepSeekStreamInternal(
     });
 
     httpRequest.on('dataReceive', (data: ArrayBuffer) => {
+      receivedAnyData = true;
       const text = decoder.decodeToString(new Uint8Array(data), streamOn);
       processText(text);
     });
@@ -331,7 +361,7 @@ function callDeepSeekStreamInternal(
     });
 
     setTimeout(() => {
-      if (!settled) {
+      if (!settled && !receivedAnyData) {
         console.warn('[DS] stream timeout after ' + DEEPSEEK_API.STREAM_TIMEOUT_MS + 'ms');
         streamError = streamError.length > 0 ? streamError : '流式响应超时';
         finish(resolve, reject);
