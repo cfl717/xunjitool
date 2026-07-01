@@ -41,7 +41,8 @@ pages/
 
 components/                # 可复用 UI 组件
 ├── CalendarHeatmap.ets    # 日历热力图
-├── ChatBubble.ets         # AI 聊天气泡
+├── ChatBubble.ets         # AI 聊天气泡（含 Markdown 渲染）
+├── MarkdownContent.ets    # Markdown 渲染组件（标题/列表/代码/引用/表格）
 ├── ExerciseCard.ets       # 动作卡片（含组列表）
 ├── ExerciseSetRow.ets     # 单组数据显示
 ├── OneRmBar.ets           # 1RM 对比条
@@ -53,15 +54,23 @@ components/                # 可复用 UI 组件
 models/                    # 数据模型
 ├── TrainingRecord.ets     # 训练记录核心模型
 ├── DashboardStats.ets     # 仪表盘统计
-└── AiConversation.ets     # AI 对话 + 训练计划库
+├── AiConversation.ets     # AI 对话 + DeepSeek 配置
+├── MarkdownTypes.ets      # Markdown 块/行内类型
 
 services/                  # 业务逻辑
 ├── DataLoader.ets         # 本地数据加载（rawfile + cache）
 ├── DataParser.ets         # CSV 数据解析
-├── DeepSeekService.ets    # DeepSeek API 调用 + 流式输出
+├── DeepSeekService.ets    # DeepSeek API 调用 + 日志
 ├── PreferencesStorage.ets # 持久化存储
 ├── StatisticsEngine.ets   # 统计计算
-└── TrainsApiService.ets   # 训记 Open API 接口
+├── TrainsApiService.ets   # 训记 Open API 接口
+
+utils/                     # 工具函数
+├── Constants.ets          # 常量 + 模型列表
+├── DateUtils.ets          # 日期工具
+├── EpleyFormula.ets       # 1RM 计算公式
+├── MarkdownParser.ets     # Markdown 解析器
+├── UnitConverter.ets      # 单位转换
 
 viewmodel/
 └── TrainingViewModel.ets  # MVVM 单例, 核心数据状态
@@ -78,6 +87,7 @@ viewmodel/
   - 不要在 `@Builder` 内用 `const`/`let` 声明
   - 对象字面量必须有显式接口类型（`interface CP { date: string; value: number; }`）
   - 避免多层 `Scroll` 嵌套
+  - SSE 流式 Promise 永不 resolve（`setTimeout` 不可用），改用非流式请求
 - **响应式**: 外部对象属性不会触发 ArkTS 重渲染。页面需用 `@State` 变量 + `aboutToAppear()` 同步数据。
 - **错误处理**: API 调用失败不阻断主流程，降级到本地数据或内置样本数据。异步异常用 `.catch()` 静默处理。
 
